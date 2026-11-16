@@ -35,4 +35,10 @@ python -m pipeline.fetch_market_data --date 20261113 --market KOSPI
 
 ## 수집 범위와 다음 단계
 
-이 수집기는 가격과 외국인 보유량만 담당한다. 투자자별 매수·매도·순매수는 다음 단계에서 `raw.investor_trading_daily`에 별도 적재한다.
+이 수집기는 가격과 외국인 보유량만 담당한다. 투자자별 매수·매도·순매수는 `pipeline/fetch_investor_trading.py`가 별도 적재한다.
+
+```powershell
+python -m pipeline.fetch_investor_trading --ticker 005930 --start 20260101 --end 20261113
+```
+
+이 수집기는 종목 하나와 기간 하나를 대상으로 모든 투자자 유형의 거래량·거래대금 매수, 매도, 순매수를 적재한다. 최초에는 KOSPI 200 같은 제한된 유니버스로 검증한 뒤 전체 시장으로 확장한다.
