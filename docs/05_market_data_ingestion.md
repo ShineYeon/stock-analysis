@@ -11,11 +11,15 @@
 
 ```powershell
 python -m pip install -r requirements.txt
-psql -d stock_analysis -f db/init_schema.sql
-psql -d stock_analysis -f db/migrations/001_create_market_data_tables.sql
+docker compose up -d postgres
+python -m db.migrate
 ```
 
-`.env`에는 PostgreSQL 접속 정보와 KRX Data Marketplace 로그인 정보가 있어야 한다. `pykrx`의 KRX 조회는 로그인 세션을 요구하므로 `KRX_ID`, `KRX_PW`가 비어 있으면 수집기는 시작 전에 실패한다. 이 값은 Git에 커밋하지 않는다.
+`.env`에는 PostgreSQL 접속 정보와 KRX Data Marketplace 로그인 정보가 있어야 한다. Docker를 사용하지 않고 기존 PostgreSQL을 사용한다면 `docker compose up`을 건너뛰고 `python -m db.migrate`만 실행한다.
+
+`pykrx`의 KRX 조회는 로그인 세션을 요구하므로 `KRX_ID`, `KRX_PW`가 비어 있으면 수집기는 시작 전에 실패한다. 모든 비밀값은 Git에 커밋하지 않는다.
+
+`python -m db.migrate --dry-run`은 아직 적용되지 않은 SQL 파일만 확인한다. 실제 실행은 `public.schema_migrations`에 적용 이력을 남기므로 같은 마이그레이션을 반복 적용하지 않는다.
 
 ## 실행 예시
 
