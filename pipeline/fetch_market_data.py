@@ -1,12 +1,13 @@
 """Ingest KRX end-of-day prices and foreign ownership data into PostgreSQL."""
 
 import argparse
+import io
+from contextlib import redirect_stdout
 from datetime import datetime
 from typing import Any, Iterable, List, Optional, Tuple
 
 import pandas as pd
 from psycopg2.extras import execute_values
-from pykrx import stock
 
 from config.settings import get_required_setting
 from db.connection import get_db_cursor
@@ -84,19 +85,37 @@ def ensure_krx_credentials() -> None:
     get_required_setting("KRX_PW")
 
 
+def merge_market_cap(prices: pd.DataFrame, market_cap: pd.DataFrame) -> pd.DataFrame:
+    """Use the dedicated market-cap response when both frames contain cap fields."""
+    columns = ["시가총액", "상장주식수"]
+    if not market_cap.index.is_unique:
+        raise ValueError("Duplicate ticker in KRX market-cap snapshot")
+    missing = set(columns).difference(market_cap.columns)
+    if missing:
+        raise ValueError(f"Missing KRX market-cap columns: {sorted(missing)}")
+    return prices.drop(columns=columns, errors="ignore").join(
+        market_cap[columns], how="left"
+    )
+
+
 def fetch_snapshot_frames(as_of_date: str, market: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Fetch one market's final daily price and foreign-ownership snapshots."""
     ensure_krx_credentials()
-    prices = stock.get_market_ohlcv_by_ticker(as_of_date, market=market)
-    market_cap = stock.get_market_cap_by_ticker(as_of_date, market=market)
-    ownership = stock.get_exhaustion_rates_of_foreign_investment(as_of_date, market=market)
+    # pykrx prints the account ID during login. Keep it out of command output.
+    with redirect_stdout(io.StringIO()):
+        from pykrx import stock
+        prices = stock.get_market_ohlcv_by_ticker(as_of_date, market=market)
+        market_cap = stock.get_market_cap_by_ticker(as_of_date, market=market)
+        ownership = stock.get_exhaustion_rates_of_foreign_investment(
+            as_of_date, market=market
+        )
 
     if prices.empty:
         raise RuntimeError(f"No KRX price data returned for {market} on {as_of_date}")
     if ownership.empty:
         raise RuntimeError(f"No KRX foreign-ownership data returned for {market} on {as_of_date}")
 
-    prices = prices.join(market_cap[["시가총액", "상장주식수"]], how="left")
+    prices = merge_market_cap(prices, market_cap)
     return prices, ownership
 
 
@@ -131,9 +150,38 @@ def build_ownership_rows(as_of_date: str, ownership: pd.DataFrame) -> List[Tuple
     return rows
 
 
-def upsert_snapshot(as_of_date: str, market: str) -> Tuple[int, int]:
+def select_snapshot_tickers(
+    prices: pd.DataFrame, ownership: pd.DataFrame, tickers: Iterable[str]
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Require every requested ticker in both KRX snapshots before writing."""
+    requested = tuple(tickers)
+    if not requested or len(set(requested)) != len(requested):
+        raise ValueError("Specify one or more unique tickers")
+    if not prices.index.is_unique or not ownership.index.is_unique:
+        raise ValueError("Duplicate ticker in a KRX snapshot")
+    missing_prices = set(requested).difference(prices.index)
+    missing_ownership = set(requested).difference(ownership.index)
+    if missing_prices or missing_ownership:
+        raise ValueError(
+            f"Missing KRX snapshot rows: prices={sorted(missing_prices)}, "
+            f"ownership={sorted(missing_ownership)}"
+        )
+    selected_prices = prices.loc[list(requested)]
+    selected_ownership = ownership.loc[list(requested)]
+    if selected_prices["종가"].isna().any():
+        raise ValueError("Missing close price in selected KRX snapshot")
+    if selected_ownership[["보유수량", "지분율"]].isna().any().any():
+        raise ValueError("Missing foreign ownership in selected KRX snapshot")
+    return selected_prices, selected_ownership
+
+
+def upsert_snapshot(
+    as_of_date: str, market: str, tickers: Optional[Iterable[str]] = None
+) -> Tuple[int, int]:
     """Fetch and atomically upsert one KRX market snapshot."""
     prices, ownership = fetch_snapshot_frames(as_of_date, market)
+    if tickers is not None:
+        prices, ownership = select_snapshot_tickers(prices, ownership, tickers)
     price_rows = build_price_rows(as_of_date, prices)
     ownership_rows = build_ownership_rows(as_of_date, ownership)
     if not ownership_rows:
@@ -149,12 +197,14 @@ def sync_security_master(as_of_date: str, markets: Iterable[str]) -> int:
     """Refresh ticker/name/market data. Run occasionally, not every day."""
     ensure_krx_credentials()
     rows: List[Tuple[Any, ...]] = []
-    for market in markets:
-        for ticker in stock.get_market_ticker_list(as_of_date, market=market):
-            rows.append((
-                ticker, stock.get_market_ticker_name(ticker), market,
-                True, "KRX", as_of_date,
-            ))
+    with redirect_stdout(io.StringIO()):
+        from pykrx import stock
+        for market in markets:
+            for ticker in stock.get_market_ticker_list(as_of_date, market=market):
+                rows.append((
+                    ticker, stock.get_market_ticker_name(ticker), market,
+                    True, "KRX", as_of_date,
+                ))
     if not rows:
         raise RuntimeError(f"No KRX tickers returned for {as_of_date}")
 

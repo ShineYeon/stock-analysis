@@ -1,6 +1,8 @@
 """Ingest daily investor buy, sell, and net flows for one KRX security."""
 
 import argparse
+import io
+from contextlib import redirect_stdout
 from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
@@ -78,21 +80,21 @@ def fetch_trading_frames(
 ) -> Dict[str, pd.DataFrame]:
     """Fetch detailed buy/sell/net frames for both value and volume."""
     ensure_krx_credentials()
-    from pykrx import stock
-
     frames: Dict[str, pd.DataFrame] = {}
-    for metric, loader in (
-        ("value", stock.get_market_trading_value_by_date),
-        ("volume", stock.get_market_trading_volume_by_date),
-    ):
-        for side in ("매수", "매도", "순매수"):
-            frame = loader(start_date, end_date, ticker, on=side, detail=True)
-            if frame.empty:
-                raise RuntimeError(
-                    f"No {metric} {side} data returned for {ticker} "
-                    f"between {start_date} and {end_date}"
-                )
-            frames[f"{metric}_{side}"] = frame
+    with redirect_stdout(io.StringIO()):
+        from pykrx import stock
+        for metric, loader in (
+            ("value", stock.get_market_trading_value_by_date),
+            ("volume", stock.get_market_trading_volume_by_date),
+        ):
+            for side in ("매수", "매도", "순매수"):
+                frame = loader(start_date, end_date, ticker, on=side, detail=True)
+                if frame.empty:
+                    raise RuntimeError(
+                        f"No {metric} {side} data returned for {ticker} "
+                        f"between {start_date} and {end_date}"
+                    )
+                frames[f"{metric}_{side}"] = frame
     return frames
 
 
