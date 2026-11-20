@@ -34,7 +34,9 @@ plankton/
 │   ├── fetch_market_data.py     KRX 일별 시장 가격·보유량·종목 마스터
 │   ├── fetch_investor_trading.py KRX 종목별 투자자 매매
 │   ├── smoke_market_data.py     지정 날짜·종목의 적재·재실행 검증
-│   └── runner.py                비어 있음
+│   ├── krx/plan.py              R1 실행 범위 검증·날짜 후보 생성
+│   ├── krx/runner.py            R1 dry-run CLI
+│   └── runner.py                기존 명령 호환 진입점
 ├── test/
 │   ├── Analysis.ipynb           삼성전자·거시지표 탐색
 │   ├── test_fetch_data.ipynb    ECOS·DART 수집 실험
@@ -70,7 +72,7 @@ plankton/
 ### 재현성과 운영
 
 - `config/settings.py`와 `db/connection.py`에 DB 설정 읽기가 중복되고 ECOS 수집기는 별도 연결 코드를 사용한다. `db/models.py`도 현재 수집 경로에서 사용하지 않는다.
-- `requirements.txt`는 버전 범위만 지정한다. `.env.example`에는 공백과 인라인 주석이 섞여 있어 복사 후 설정 값을 명확히 채우기 어렵다.
+- `requirements.txt`는 버전 범위만 지정한다. `.env.example`의 DB 기본값과 빈 인증 항목은 정리했으며, 설치 버전을 고정하는 잠금 파일은 아직 없다.
 - 수집 일정, 전체 시장 백필·증분 구분, API 재시도, 운영 데이터의 최신일·결측률 점검이 없다. `test/`에는 탐색 노트북과 일부 단위 테스트가 있으며 실제 API·DB 통합 검증은 남았다.
 - 현재 노트북 소스에서는 ECOS 키를 환경변수로 읽는다. 기존 문서의 과거 키 노출 주장은 Git 이력을 조사해 확인해야 한다. 노출이 확인되면 키를 폐기·재발급하고 노출 경로를 정리한다. `.env`는 현재 `.gitignore`에 있다.
 
@@ -82,6 +84,7 @@ P0  데이터 정확성과 실행 기반
 ├─ 2. [표본 검증 완료] 결측/0·날짜·유형·표본 행 수 검사
 ├─ 3. [표본 검증 완료] 작은 유니버스 적재·재실행 비교
 ├─ 4. 실행기: 거래일·시장·종목 반복, 실패 기록·재시도·증분 수집
+│    └─ [세부 계획] docs/08_runner_incremental_plan.md (R1 완료, R2–R6 남음)
 └─ 5. 설정/DB 연결 통합, 자동 검증, README·예제 환경변수 정리
 
 P1  분석 가능한 이력
